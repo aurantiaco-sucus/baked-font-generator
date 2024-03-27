@@ -1,0 +1,13 @@
+[package]
+name = "baked-font-generator"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+skia-safe = "0.72.0"
+baked-font = { path = "../baked-font" }
+image = { version = "0.25.0", features = ["png"] }
+postcard = { version = "1.0.8", features = ["alloc"] }
+zstd = "0.13.0"
