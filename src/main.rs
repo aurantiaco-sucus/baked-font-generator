@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 
 use baked_font::Glyph;
@@ -9,14 +10,15 @@ use skia_safe::utils::text_utils::Align;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
-        eprintln!("Usage: {} (font family) (font size) (padding) (output file) (glyph text files...)", args[0]);
+        eprintln!("Usage: {} (font family) (font size) (padding) (output file) (zstd level) (glyph text files...)", args[0]);
         std::process::exit(1);
     }
-    
+
     let output = &args[4];
-    
+    let zstd_level = args[5].parse::<i32>().unwrap();
+
     let mut seq_list = Vec::new();
-    for arg in args.iter().skip(5) {
+    for arg in args.iter().skip(6) {
         println!("Reading file: {}", arg);
         let data = fs::read_to_string(arg).unwrap();
         seq_list.extend(data.lines()
@@ -41,12 +43,8 @@ fn main() {
         .map(|(_, x)| *x)
         .collect::<Vec<_>>();
 
-    let mut map16 = vec![Glyph {
-        pos: (0, 0),
-        size: (0, 0),
-        offset: (0, 0),
-    }; 65536];
-    let mut dict32 = std::collections::BTreeMap::new();
+    let mut map1 = BTreeMap::new();
+    let mut map2 = BTreeMap::new();
 
     let flattened = bl.iter()
         .flat_map(|(y, line)| line.iter()
@@ -65,27 +63,30 @@ fn main() {
             size: (w, h),
             offset: (-ox, size as i8 - oy),
         };
-        let utf16 = seq.encode_utf16().collect::<Vec<_>>();
-        if utf16.len() < 4 {
-            map16[utf16[0] as usize] = glyph;
+        let chars = seq.chars().collect::<Vec<_>>();
+        if chars.len() == 1 {
+            map1.insert(chars[0], glyph);
+        } else if chars.len() == 2 {
+            map2.insert([chars[0], chars[1]], glyph);
         } else {
-            let key = [utf16[0], utf16[1]];
-            dict32.insert(key, glyph);
+            panic!("Invalid glyph sequence: {}", seq);
         }
     }
-    println!("Glyph count (map16): {}", map16.iter().filter(|x| x.size.0 != 0).count());
-    println!("Glyph count (dict32): {}", dict32.len());
+    println!("Glyph count (map1): {}", map1.len());
+    println!("Glyph count (map2): {}", map2.len());
 
     let font = baked_font::Font {
         bitmap,
         width: width as u32,
-        map16,
-        dict32,
+        map1,
+        map2,
     };
-    let data = postcard::to_allocvec(&font).unwrap();
+    let mut data = postcard::to_allocvec(&font).unwrap();
     println!("Font size (uncompressed): {}", data.len());
-    let data = zstd::encode_all(std::io::Cursor::new(data), 19).unwrap();
-    println!("Font size (Zstd@19 compressed): {}", data.len());
+    if zstd_level != 0 {
+        data = zstd::encode_all(std::io::Cursor::new(data), zstd_level).unwrap();
+        println!("Font size (Zstd@{zstd_level} compressed): {}", data.len());
+    }
     fs::write(output, data).unwrap();
 }
 
